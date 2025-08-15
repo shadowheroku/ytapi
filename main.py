@@ -1,8 +1,9 @@
 from fastapi import FastAPI, Query
 from yt_dlp import YoutubeDL
 from fastapi.middleware.cors import CORSMiddleware
+import os
 
-app = FastAPI(title="Self-Hosted Music API")
+app = FastAPI(title="Self-Hosted Music API with Cookies")
 
 # Allow your bot to access the API
 app.add_middleware(
@@ -12,18 +13,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Path to cookies file
+COOKIES_FILE = os.path.join(os.getcwd(), "cookies.txt")
+
 # yt-dlp options for audio streaming
 ydl_opts_audio = {
     "format": "bestaudio/best",
     "quiet": True,
-    "extract_flat": False,
+    "cookies": COOKIES_FILE,  # Use cookies to bypass YouTube bot checks
 }
 
 # yt-dlp options for video streaming
 ydl_opts_video = {
     "format": "best",
     "quiet": True,
-    "extract_flat": False,
+    "cookies": COOKIES_FILE,
 }
 
 
