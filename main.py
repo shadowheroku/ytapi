@@ -14,14 +14,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Cookies file path
 COOKIES_FILE = "cookies.txt"
-
-# Cache dictionary
 cache = {}
-CACHE_EXPIRY = 300  # seconds, i.e., 5 minutes
+CACHE_EXPIRY = 300  # 5 minutes
 
-# yt-dlp options
 def ydl_opts(format_type: str):
     return {
         "format": format_type,
@@ -34,21 +30,30 @@ def ydl_opts(format_type: str):
         "cachedir": False
     }
 
-def _extract_info_sync(url: str, type_: str):
-    # Check cache
+def _extract_info_sync(query: str, type_: str):
+    """
+    Extract info from YouTube URL or search query.
+    If `query` is not a valid URL, treat it as a search query.
+    """
     now = time.time()
-    if url in cache:
-        cached_data, timestamp = cache[url]
+    if query in cache:
+        cached_data, timestamp = cache[query]
         if now - timestamp < CACHE_EXPIRY:
             return cached_data
         else:
-            del cache[url]  # remove expired cache
+            del cache[query]
 
-    # Extract using yt-dlp
+    # Detect if query is a URL or search term
+    if not query.startswith("http"):
+        query = f"ytsearch1:{query}"  # Take first search result
+
     opts = ydl_opts("bestaudio/best" if type_ == "audio" else "best")
     with YoutubeDL(opts) as ydl:
-        info = ydl.extract_info(url, download=False)
-    
+        info = ydl.extract_info(query, download=False)
+        # If it's a search, yt-dlp returns 'entries'
+        if "entries" in info:
+            info = info["entries"][0]
+
     result = {
         "title": info.get("title"),
         f"{type_}_url": info.get("url"),
@@ -56,32 +61,29 @@ def _extract_info_sync(url: str, type_: str):
         "thumbnail": info.get("thumbnail")
     }
 
-    # Save to cache
-    cache[url] = (result, now)
+    cache[query] = (result, now)
     return result
 
-# Async wrapper
-async def extract_info(url: str, type_: str):
+async def extract_info(query: str, type_: str):
     try:
-        return await run_in_threadpool(lambda: _extract_info_sync(url, type_))
+        return await run_in_threadpool(lambda: _extract_info_sync(query, type_))
     except Exception as e:
         return {"error": str(e)}
 
 @app.get("/get_audio")
-async def get_audio(url: str = Query(..., description="YouTube video URL")):
-    return await extract_info(url, "audio")
+async def get_audio(query: str = Query(..., description="YouTube URL or search query")):
+    return await extract_info(query, "audio")
 
 @app.get("/get_video")
-async def get_video(url: str = Query(..., description="YouTube video URL")):
-    return await extract_info(url, "video")
+async def get_video(query: str = Query(..., description="YouTube URL or search query")):
+    return await extract_info(query, "video")
 
-# Optional: periodic cleanup for expired cache (runs in background)
 async def cache_cleaner():
     while True:
         now = time.time()
-        to_delete = [url for url, (_, ts) in cache.items() if now - ts >= CACHE_EXPIRY]
-        for url in to_delete:
-            del cache[url]
+        to_delete = [key for key, (_, ts) in cache.items() if now - ts >= CACHE_EXPIRY]
+        for key in to_delete:
+            del cache[key]
         await asyncio.sleep(CACHE_EXPIRY // 2)
 
 @app.on_event("startup")
